@@ -9,7 +9,7 @@
     "start": "node src/index.js",
     "build": "node scripts/build.mjs",
     "check": "node scripts/build.mjs",
-    "test": "node scripts/test-cors-origins.mjs",
+    "test": "node scripts/test-cors-origins.mjs && node scripts/test-port-conflict.mjs",
     "db:verify": "node scripts/verify-db.mjs"
   },
   "dependencies": {

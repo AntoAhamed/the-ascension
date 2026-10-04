@@ -3,6 +3,7 @@
  */
 import express from 'express';
 import compression from 'compression';
+import http from 'node:http';
 import { constants as zlibConstants } from 'node:zlib';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -309,6 +310,8 @@ async function bootstrap() {
     console.log(`  cors: ${config.allowedOrigins.join(', ')}\n`);
   });
 
+  server.on('error', (err) => onListenError(err, config.port));
+
   // Close the listener before exiting so the platform sees a clean shutdown
   // rather than a forced kill. The cron task is stopped first so it cannot fire
   // mid-shutdown — a reconcile starting while the listener is draining would
@@ -322,6 +325,100 @@ async function bootstrap() {
   };
   process.on('SIGTERM', shutdown('SIGTERM'));
   process.on('SIGINT', shutdown('SIGINT'));
+}
+
+/**
+ * A failed listen() deserves better than an unhandled 'error' event.
+ *
+ * EADDRINUSE is one of the commonest development failures there is — a previous
+ * `node --watch` is still alive in another terminal — and the default outcome
+ * hides that completely: Node prints an exception trace that names a syscall
+ * and an errno, and `node --watch` then waits silently for a file change, so
+ * the developer is left with a client that runs and an API that quietly does
+ * not. Handled, the same failure can say what actually matters:
+ *
+ *   - whether the port's current occupant IS this API. The probe hits
+ *     /api/health; a 200 with our shape means a leftover instance, which is the
+ *     usual case, and the useful fact is that the client would work against it.
+ *   - how to find and stop whatever holds the port.
+ *   - that PORT exists, for the rarer "I meant to run two" case.
+ *
+ * The process still exits 1. Retrying the bind is pointless in development (the
+ * other instance is not going away) and unnecessary in production (the
+ * platform's restart policy is the retry loop) — the only thing missing was the
+ * explanation.
+ */
+async function onListenError(err, port) {
+  if (err?.code !== 'EADDRINUSE') {
+    console.error(`\n[boot] the HTTP server failed to start: ${err?.message ?? err}`);
+    process.exit(1);
+  }
+
+  const holder = await probePort(port);
+
+  const lines = [
+    '',
+    '='.repeat(72),
+    `  PORT ${port} IS ALREADY IN USE — REFUSING TO START`,
+    '='.repeat(72),
+    '',
+  ];
+
+  if (holder === 'this-api') {
+    lines.push(
+      '  Another copy of THIS API is already listening there (its /api/health',
+      '  answers). That is almost always a previous `npm run dev` or `node --watch`',
+      '  that is still alive in another terminal.',
+      '',
+      '  The client will work against the already-running instance, so you can',
+      '  either just use it, or stop it before starting this one.'
+    );
+  } else {
+    lines.push(
+      holder === 'something-else'
+        ? '  Whatever holds the port does not answer /api/health, so it is some other program.'
+        : '  The port is held, but its occupant did not answer a probe at all.',
+      ''
+    );
+  }
+
+  lines.push(
+    '',
+    '  To find the process holding the port:',
+    `    Windows:      Get-NetTCPConnection -LocalPort ${port} -State Listen`,
+    `    macOS/Linux:  lsof -i :${port}`,
+    '',
+    '  Stop that process, or run this server on a different port with PORT=<n>.',
+    ''
+  );
+
+  console.error(lines.join('\n'));
+  process.exit(1);
+}
+
+/**
+ * Ask the port's current occupant what it is. Resolves 'this-api' when
+ * /api/health answers 200 with our shape, 'something-else' when it answers at
+ * all, and 'no-answer' otherwise. Bounded at 1.5s so a firewall-blackholed port
+ * cannot hang the exit.
+ */
+function probePort(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: '/api/health', timeout: 1500 },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => {
+          if (body.length < 4096) body += chunk;
+        });
+        res.on('end', () => {
+          resolve(res.statusCode === 200 && body.includes('"ok":true') ? 'this-api' : 'something-else');
+        });
+      }
+    );
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve('no-answer'));
+  });
 }
 
 bootstrap();
