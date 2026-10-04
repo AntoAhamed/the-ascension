@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { LoadingPanel } from './components/ui/Spinner.jsx';
 import { useDocumentTitle } from './hooks/useDocumentTitle.js';
+import { api } from './lib/api.js';
 
 /**
  * The signed-out screen is deferred. It is a mutually exclusive branch with the
@@ -30,6 +31,14 @@ const AuthScreen = lazy(() =>
 export default function App() {
   const { canExplore, isGuest, loading } = useAuth();
   const [tab, setTab] = useState('dashboard');
+
+  // Wake the API as soon as the app starts. A free-tier host sleeps when idle,
+  // and the boot takes 30-50 seconds — by the time the visitor has read the
+  // sign-in form and submitted it, the server should be answering. Silent and
+  // failure-proof: nothing here can surface to the UI.
+  useEffect(() => {
+    api.warmup();
+  }, []);
 
   // The signed-out and still-authenticating screens have no status to report, so
   // the title stays the plain marketing one. Once the dashboard mounts it takes

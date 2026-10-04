@@ -68,9 +68,14 @@ function walk(dir) {
   });
 }
 
-function assertClientEnvForBuild(env) {
+/**
+ * Exported for the test suite (test-api-resilience.mjs drives it with fake env
+ * maps). Not part of the config contract — Vite only calls the default export.
+ */
+export function assertClientEnvForBuild(env) {
   const url = (env.VITE_SUPABASE_URL ?? '').trim();
   const anonKey = (env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+  const apiUrl = (env.VITE_API_URL ?? '').trim();
 
   const problems = [];
   if (!url) problems.push('VITE_SUPABASE_URL is missing or blank');
@@ -80,6 +85,37 @@ function assertClientEnvForBuild(env) {
   if (!anonKey) problems.push('VITE_SUPABASE_ANON_KEY is missing or blank');
   else if (PLACEHOLDERS.includes(anonKey)) {
     problems.push('VITE_SUPABASE_ANON_KEY is still the placeholder from .env.example');
+  }
+
+  // VITE_API_URL — the one that bites AFTER login. Without it the bundle falls
+  // back to a relative /api, so the app authenticates fine and then every
+  // backend call hits the static host and fails: the exact "signed in, then
+  // 'Could not reach the API'" report. Supabase-only checks above pass in that
+  // state, which is how a build can look configured and ship broken.
+  if (!apiUrl) {
+    problems.push(
+      'VITE_API_URL is missing or blank — the app would sign in and then fail on every API call'
+    );
+  } else if (!/^https?:\/\//.test(apiUrl)) {
+    problems.push(
+      `VITE_API_URL must be an absolute URL starting with http(s):// — received "${apiUrl}"`
+    );
+  } else if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(apiUrl)) {
+    // A localhost API is legitimate for a local production-shaped build (the
+    // verify gates do exactly that) and always wrong on a deploy platform,
+    // where "localhost" is the build container, not the API. The distinction
+    // is knowable only from platform markers, so the failure is scoped to
+    // them and every other environment gets a loud warning instead.
+    if (process.env.VERCEL || process.env.CI || process.env.NETLIFY || process.env.RENDER) {
+      problems.push(
+        `VITE_API_URL points at localhost ("${apiUrl}") — on a deploy platform that is the build container, not your API. Set VITE_API_URL to the deployed API origin in the platform's env settings.`
+      );
+    } else {
+      console.warn(
+        '\n  ⚠ VITE_API_URL points at localhost — fine for a local build, broken if this\n' +
+          '    bundle is deployed. On the deploy platform, set VITE_API_URL to the live API origin.\n'
+      );
+    }
   }
 
   if (problems.length === 0) return;
@@ -92,12 +128,13 @@ function assertClientEnvForBuild(env) {
       '  Vite inlines VITE_ variables into the bundle, so this build would ship a site\n' +
       "  whose sign-in form cannot authenticate anyone. Fill in client/.env first:\n\n" +
       '    VITE_SUPABASE_URL        Project Settings -> API\n' +
-      '    VITE_SUPABASE_ANON_KEY   Project Settings -> API -> anon (publishable)\n\n' +
-      '  Both are safe to expose. Never put the service_role or Gemini keys in this\n' +
+      '    VITE_SUPABASE_ANON_KEY   Project Settings -> API -> anon (publishable)\n' +
+      '    VITE_API_URL             your deployed API origin, e.g. https://your-api.onrender.com\n\n' +
+      '  All three are safe to expose. Never put the service_role or Gemini keys in this\n' +
       '  file — everything here is shipped to every visitor.\n\n' +
       '  To build anyway (e.g. just to check the bundle compiles), use:\n' +
       '    vite build --mode development\n' +
-      '  On a CI runner, set the two variables as build-time environment variables.\n\n'
+      '  On a CI runner, set the three variables as build-time environment variables.\n\n'
   );
 }
 

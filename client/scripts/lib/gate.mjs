@@ -184,11 +184,28 @@ export async function withPage(browserPath, port, path, fn, { settle = 4000, win
      * Drained rather than read once at the end because a failure has to name the
      * interaction that caused it. A single end-of-run dump attributes every error
      * to whatever happened last, which is usually the wrong thing.
+     *
+     * The browser's own network narration is NOT collected, in either of the two
+     * forms Chrome emits it: source 'network' entries (ERR_FAILED resource
+     * loads), and renderer-logged messages like "blocked by CORS policy", which
+     * arrive with a different source and must be matched by text. A browser logs
+     * these itself and no JavaScript can prevent or suppress it — so a gate run
+     * without a backend (this harness stubs nothing, by design) would report a
+     * perfectly good build as broken the moment any code issues a request, which
+     * is precisely what the warm-up ping added to App.jsx does. These entries
+     * are not "something threw": they are the browser narrating the network.
+     * Anything that genuinely matters about them — a chunk that fails to load,
+     * say — is still caught by the gates' own assertions about what rendered and
+     * which deferred imports evaluated. JS-originated errors (console.error from
+     * app code, uncaught exceptions) are unaffected.
      */
+    const BROWSER_NETWORK_NARRATION = /blocked by CORS policy|net::ERR_/;
     let noise = [];
     ws.onEvent((msg) => {
       if (msg.method === 'Log.entryAdded' && msg.params.entry.level === 'error') {
-        noise.push(`console.error: ${msg.params.entry.text}`);
+        const entry = msg.params.entry;
+        if (entry.source === 'network' || BROWSER_NETWORK_NARRATION.test(entry.text)) return;
+        noise.push(`console.error: ${entry.text}`);
       }
       if (msg.method === 'Runtime.exceptionThrown') {
         const d = msg.params.exceptionDetails;

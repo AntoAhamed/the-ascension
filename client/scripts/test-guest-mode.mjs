@@ -329,10 +329,23 @@ group('No guest API call reaches the network');
   const guestBranches = (body.match(/asGuest\(\)/g) ?? []).length;
   const realCalls = (body.match(/\brequest\(/g) ?? []).length;
 
-  check('every endpoint branches to guest mode', guestBranches === 11, `${guestBranches} branches`);
+  // warmup() is the ONE intentional asymmetry: guests skip it entirely (they
+  // never call the real API, so there is nothing to warm), so it has a guest
+  // branch but no request() path. Every other endpoint must have exactly one
+  // of each. Naming the exception keeps the count load-bearing: a new endpoint
+  // that forgets either path still shifts these numbers.
+  check('every endpoint branches to guest mode', guestBranches === 12, `${guestBranches} branches`);
   check('no endpoint lost its real request path', realCalls === 11, `${realCalls} requests`);
-  check('one guest path and one real path per endpoint', guestBranches === realCalls);
-  for (const name of ['health', 'profile', 'submissions', 'logs', 'leaderboard', 'tiers', 'feedback']) {
+  check('exactly one endpoint pairs a guest branch with no real request', guestBranches - realCalls === 1);
+  {
+    const warmupBody = body.slice(body.indexOf('warmup:'), body.indexOf('profile:', body.indexOf('warmup:')));
+    check(
+      'the asymmetric endpoint is warmup, and its guest path is a no-op',
+      /asGuest\(\)/.test(warmupBody) && !/\brequest\(/.test(warmupBody),
+      'if this shifts, a new endpoint lost its real path or its guest path'
+    );
+  }
+  for (const name of ['health', 'warmup', 'profile', 'submissions', 'logs', 'leaderboard', 'tiers', 'feedback']) {
     check(`the api surface still exposes ${name}`, body.includes(`${name}:`));
   }
 }

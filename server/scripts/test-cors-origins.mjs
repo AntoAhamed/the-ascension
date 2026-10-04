@@ -334,6 +334,91 @@ configProblems('localhost http is exempt from the https rule', { NODE_ENV: 'prod
 configProblems('a whitespace-only allowlist is rejected', { NODE_ENV: 'production', CORS_ORIGIN: ' , ' }, 'CORS_ORIGIN is empty', true);
 configProblems('an empty allowlist is rejected', { NODE_ENV: 'production', CORS_ORIGIN: '' }, 'CORS_ORIGIN is empty', true);
 
+/* --- trailing-slash normalisation and bare-origin validation --------------- *
+ * The Origin header never has a trailing slash or a path, so an env var that
+ * has either matches nothing — a CORS wall that looks configured in the
+ * dashboard. Slashes are stripped at the boundary; paths are a boot failure.
+ */
+
+function allowedOriginsWith(overrides) {
+  const script =
+    `import { config } from ${JSON.stringify(ENV_MODULE_URL)};\n` +
+    'process.stdout.write(JSON.stringify(config.allowedOrigins));';
+  return JSON.parse(
+    execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+      cwd: resolve(repo, 'server'),
+      env: { ...process.env, ...overrides },
+      encoding: 'utf8',
+    })
+  );
+}
+
+{
+  let normalized;
+  try {
+    normalized = allowedOriginsWith({ NODE_ENV: 'production', CORS_ORIGIN: 'https://app.example.com/' });
+    eq('a trailing slash is stripped', JSON.stringify(normalized), JSON.stringify(['https://app.example.com']));
+  } catch (err) {
+    check('a trailing slash is stripped', false, String(err.message).split('\n')[0]);
+  }
+
+  try {
+    normalized = allowedOriginsWith({
+      NODE_ENV: 'production',
+      CORS_ORIGIN: 'https://a.example.com/, http://localhost:5173/ , https://b.example.com///',
+    });
+    eq(
+      'slashes, spaces and repeated slashes are all normalised',
+      JSON.stringify(normalized),
+      JSON.stringify(['https://a.example.com', 'http://localhost:5173', 'https://b.example.com'])
+    );
+  } catch (err) {
+    check('slashes, spaces and repeated slashes are all normalised', false, String(err.message).split('\n')[0]);
+  }
+
+  try {
+    normalized = allowedOriginsWith({ NODE_ENV: 'development', CORS_ORIGIN: 'http://localhost:5173' });
+    eq('an already-clean entry is untouched', JSON.stringify(normalized), JSON.stringify(['http://localhost:5173']));
+  } catch (err) {
+    check('an already-clean entry is untouched', false, String(err.message).split('\n')[0]);
+  }
+}
+
+// The normalised value must actually match the browser's Origin header.
+eq(
+  'a slash-terminated CORS_ORIGIN still admits the bare origin',
+  isOriginAllowed('https://app.example.com', {
+    allowedOrigins: ['https://app.example.com'], // what env.js now produces from 'https://app.example.com/'
+    isProd: true,
+  }),
+  true
+);
+
+configProblems(
+  'an origin carrying a path is a boot failure',
+  { NODE_ENV: 'production', CORS_ORIGIN: 'https://app.example.com/app' },
+  'bare origins',
+  true
+);
+configProblems(
+  'a scheme-less entry is a boot failure',
+  { NODE_ENV: 'production', CORS_ORIGIN: 'app.example.com' },
+  'bare origins',
+  true
+);
+configProblems(
+  'a well-formed list produces no bare-origin problem',
+  { NODE_ENV: 'production', CORS_ORIGIN: 'https://app.example.com' },
+  'bare origins',
+  false
+);
+configProblems(
+  'the wildcard in development is not double-flagged as malformed',
+  { NODE_ENV: 'development', CORS_ORIGIN: '*' },
+  'bare origins',
+  false
+);
+
 /* ------------------------------------------------------------------ *
  * 5. The client half: same-origin in development
  * ------------------------------------------------------------------ */

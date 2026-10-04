@@ -41,9 +41,13 @@ const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
 export const config = Object.freeze({
   ...raw,
   isProd: raw.nodeEnv === 'production',
+  // Trailing slashes are stripped, not trusted: the browser's Origin header
+  // never has one, so 'https://app.vercel.app/' in an env var would silently
+  // match nothing — a CORS wall that looks configured. Normalising here makes
+  // the forgiving thing happen at the boundary instead of per request.
   allowedOrigins: corsOrigin
     .split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean),
 });
 
@@ -90,6 +94,26 @@ export function validateConfig() {
     problems.push(
       'CORS_ORIGIN is empty. No browser would be able to call the API. Set it to the exact origin(s) serving the client, e.g. https://your-app.vercel.app'
     );
+  } else {
+    // Every entry must be a bare origin — scheme, host, optional port, nothing
+    // else. The Origin header it is compared against never carries a path, so
+    // 'https://host/app' matches nothing, and it does so silently.
+    const malformed = config.allowedOrigins.filter((o) => {
+      // Wildcards are the wildcard check's business (it owns the dev/prod
+      // distinction); this check is about origins that *look* precise.
+      if (o === '*' || o === 'null') return false;
+      try {
+        const u = new URL(o);
+        return u.origin !== o || (u.protocol !== 'http:' && u.protocol !== 'https:');
+      } catch {
+        return true;
+      }
+    });
+    if (malformed.length) {
+      problems.push(
+        `CORS_ORIGIN entries must be bare origins (scheme + host, no path): ${malformed.join(', ')}`
+      );
+    }
   }
 
   // --- Production-only hardening -------------------------------------------

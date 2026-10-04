@@ -21,6 +21,7 @@ import { ApiError } from './apiError.js';
 import { guestStore } from './guestSession.js';
 import { guestApi } from './guestApi.js';
 import { resolveApiBase } from './apiBase.js';
+import { fetchWithRetry } from './fetchWithRetry.js';
 
 export { ApiError };
 
@@ -64,9 +65,12 @@ async function request(path, { method = 'GET', body, signal, _isRetry = false } 
     throw new ApiError(401, 'UNAUTHENTICATED', 'You are not signed in.');
   }
 
-  let res;
-  try {
-    res = await fetch(`${BASE}${path}`, {
+  // fetchWithRetry owns the failure modes: timeout, cold-start retry, and the
+  // caller's AbortSignal. A NETWORK ApiError comes out of it already shaped;
+  // an AbortError passes through untouched for callers that cancel.
+  const res = await fetchWithRetry({
+    url: `${BASE}${path}`,
+    init: {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -74,11 +78,8 @@ async function request(path, { method = 'GET', body, signal, _isRetry = false } 
       },
       body: body ? JSON.stringify(body) : undefined,
       signal,
-    });
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err;
-    throw new ApiError(0, 'NETWORK', 'Could not reach the API. Is the server running?');
-  }
+    },
+  });
 
   const text = await res.text();
   let data = null;
@@ -165,6 +166,38 @@ const asGuest = () => guestStore.isGuest();
 
 export const api = {
   health: () => (asGuest() ? guestApi.health() : request('/health')),
+
+  /**
+   * Wake the API before anybody needs it.
+   *
+   * Called once at app start — before the visitor has signed in, so it goes out
+   * without a token against the public health endpoint. A sleeping instance
+   * takes 30-50 seconds to boot; paying that cost while the user is still
+   * reading the sign-in form means the profile fetch that follows a successful
+   * login lands on a warm server instead of a cold one.
+   *
+   * Genuinely fire-and-forget: every failure mode is swallowed. A warm-up that
+   * could surface an error would be a bug generator, not an optimization.
+   * Guests skip it — they never call the real API, so waking it would be pure
+   * load for nothing.
+   *
+   * @returns {Promise<boolean>} whether the API answered, for tests.
+   */
+  warmup: async () => {
+    if (asGuest()) return false;
+    try {
+      const res = await fetchWithRetry({
+        url: `${BASE}/health`,
+        // The longest wait anywhere in the client: this exists precisely for
+        // the case where the instance has not started yet.
+        timeoutMs: 60_000,
+        maxAttempts: 2,
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
 
   profile: {
     // Takes an optional AbortSignal so the caller can cancel a fetch that a
