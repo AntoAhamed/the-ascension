@@ -191,6 +191,19 @@ try {
       await sleep(2500);
       const header = await evaluate(`!!document.querySelector('header')`);
       check('the header rendered', header.value === true);
+
+      // The desktop counterpart of the mobile pass below: at 1280px the menu
+      // must stay hidden and the full control row must be what is shown.
+      const responsive = await evaluate(`(() => {
+        const menuBtn = document.querySelector('header [aria-label="More options"]');
+        const about = document.querySelector('header [aria-label="About and How It Works"]');
+        return {
+          menuHidden: menuBtn ? menuBtn.getBoundingClientRect().width === 0 : null,
+          aboutVisible: about ? about.getBoundingClientRect().width > 0 : false,
+        };
+      })()`);
+      check('the overflow menu stays hidden on desktop', responsive.value?.menuHidden === true, JSON.stringify(responsive.value));
+      check('the desktop controls are visible', responsive.value?.aboutVisible === true, JSON.stringify(responsive.value));
     }
 
     for (const { label, expect } of CONTROLS) {
@@ -332,6 +345,180 @@ try {
 } catch (err) {
   failures += 1;
   console.log(`  FAIL  the browser could not be driven: ${err.message}`);
+}
+
+/* ---------------- the mobile pass ----------------
+ *
+ * The header used to overflow a phone: ~520px of shrink-0 controls in one
+ * non-wrapping row against a 375px viewport, with the sign-out button off the
+ * right edge of the screen. The fix moves everything non-essential into an
+ * overflow menu below `sm`.
+ *
+ * Run at the smallest window headless Chrome reliably allows (~500px — see
+ * gate.mjs on why CDP device emulation is not used). At 503px the layout is
+ * already below `sm`, so every mobile-only branch is exercised, and the
+ * assertions are chosen to be meaningful at any narrow width rather than at
+ * one exact device size:
+ *
+ *   - nothing scrolls sideways (the user-visible failure);
+ *   - the responsive switch happened (menu shown, desktop row hidden);
+ *   - the header's INTRINSIC content fits a 375px phone — measured as the sum
+ *     of its fixed children, gaps and padding, which does not depend on the
+ *     width the window happened to get;
+ *   - the menu itself works: opens, receives focus, Escape closes and restores
+ *     focus, and its Sign out opens the same confirmation dialog as desktop.
+ */
+
+try {
+  await withPage(
+    browser,
+    PORT,
+    '/',
+    async ({ evaluate, click, key, drainNoise, sleep, waitUntil }) => {
+      group('Mobile layout: nothing scrolls sideways and the header fits');
+      {
+        await sleep(3000);
+        const authFit = await evaluate(
+          `({ iw: window.innerWidth, sw: document.documentElement.scrollWidth })`
+        );
+        check(
+          'the sign-in screen does not scroll sideways',
+          (authFit.value?.sw ?? 1e9) <= (authFit.value?.iw ?? 0),
+          JSON.stringify(authFit.value)
+        );
+
+        await evaluate(
+          `Array.from(document.querySelectorAll('button')).find((b) => /explore/i.test(b.innerText))?.click()`
+        );
+        await sleep(3000);
+        drainNoise();
+
+        const layout = await evaluate(`(() => {
+          const menuBtn = document.querySelector('header [aria-label="More options"]');
+          const desktopAbout = document.querySelector('header [aria-label="About and How It Works"]');
+          return {
+            mobileMq: matchMedia('(max-width: 639px)').matches,
+            menuVisible: menuBtn ? menuBtn.getBoundingClientRect().width > 0 : null,
+            desktopRowHidden: desktopAbout ? desktopAbout.getBoundingClientRect().width === 0 : null,
+          };
+        })()`);
+        check('the viewport is in the mobile band', layout.value?.mobileMq === true, JSON.stringify(layout.value));
+        check('the overflow-menu button is shown', layout.value?.menuVisible === true, JSON.stringify(layout.value));
+        check('the desktop control row is hidden', layout.value?.desktopRowHidden === true, JSON.stringify(layout.value));
+
+        const dashFit = await evaluate(
+          `({ iw: window.innerWidth, sw: document.documentElement.scrollWidth })`
+        );
+        check(
+          'the dashboard does not scroll sideways',
+          (dashFit.value?.sw ?? 1e9) <= (dashFit.value?.iw ?? 0),
+          JSON.stringify(dashFit.value)
+        );
+
+        // The viewport-independent fit check: the row's fixed content plus its
+        // gaps and padding must fit the smallest common phone width, whatever
+        // width this window actually got. The flex-1 spacer is excluded — its
+        // job is to absorb slack, and it is exactly what shrinks.
+        const intrinsic = await evaluate(`(() => {
+          const row = document.querySelector('header > div');
+          if (!row) return null;
+          const cs = getComputedStyle(row);
+          const gap = parseFloat(cs.columnGap) || 0;
+          const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+          let fixed = 0;
+          let visible = 0;
+          for (const el of row.children) {
+            if (getComputedStyle(el).display === 'none') continue;
+            visible += 1;
+            if (el.classList.contains('flex-1')) continue;
+            fixed += el.getBoundingClientRect().width;
+          }
+          return { total: fixed + gap * (visible - 1) + pad, fixed, gap, pad, visible };
+        })()`);
+        check(
+          'the header content fits a 375px phone',
+          (intrinsic.value?.total ?? 1e9) <= 375,
+          JSON.stringify(intrinsic.value)
+        );
+
+        const noiseBoot = drainNoise();
+        check('nothing threw', noiseBoot.length === 0, noiseBoot.join(' | '));
+      }
+
+      group('Mobile menu: opens, focuses, closes, and signs out through the dialog');
+      {
+        drainNoise();
+        const openResult = await click('header [aria-label="More options"]');
+        check('the menu button is present and not covered', openResult.clicked === true, JSON.stringify(openResult));
+
+        const menuOpen = await waitUntil(
+          async () => (await evaluate(`!!document.querySelector('[role="menu"]')`)).value === true
+        );
+        check('the menu opens', Boolean(menuOpen));
+
+        const focusInside = await evaluate(
+          `document.activeElement?.closest('[role="menu"]') !== null`
+        );
+        check('focus moved into the menu', focusInside.value === true);
+
+        const items = (await evaluate(
+          `Array.from(document.querySelectorAll('[role="menuitem"]')).map((b) => b.innerText.trim())`
+        )).value ?? [];
+        check('About is offered', items.some((t) => /about/i.test(t)), JSON.stringify(items));
+        check('Feedback is offered', items.some((t) => /feedback/i.test(t)), JSON.stringify(items));
+        check('sound is offered', items.some((t) => /sound/i.test(t)), JSON.stringify(items));
+        check('Sign out is offered', items.some((t) => /sign out/i.test(t)), JSON.stringify(items));
+        check('Delete account is NOT offered to a guest', !items.some((t) => /delete/i.test(t)), JSON.stringify(items));
+
+        await key('Escape');
+        const closed = await waitUntil(
+          async () => (await evaluate(`!!document.querySelector('[role="menu"]')`)).value === false
+        );
+        check('Escape closes the menu', Boolean(closed));
+        const focusBack = await evaluate(
+          `document.activeElement === document.querySelector('header [aria-label="More options"]')`
+        );
+        check('focus returns to the trigger', focusBack.value === true);
+
+        // Sign out from the menu must land on the same confirmation dialog as
+        // the desktop button — matched on the dialog's question, not on pixels.
+        await click('header [aria-label="More options"]');
+        await waitUntil(async () => (await evaluate(`!!document.querySelector('[role="menu"]')`)).value === true);
+        const signOutClicked = await evaluate(`(() => {
+          const item = Array.from(document.querySelectorAll('[role="menuitem"]'))
+            .find((b) => (b.innerText || '').trim().toLowerCase() === 'sign out');
+          if (!item) return { missing: true };
+          item.click();
+          return { clicked: true };
+        })()`);
+        check('the menu Sign out exists and was clicked', signOutClicked.value?.clicked === true, JSON.stringify(signOutClicked.value));
+
+        const dialogShown = await waitUntil(async () =>
+          (await evaluate(`Array.from(document.querySelectorAll('[role="dialog"]'))
+            .some((d) => /log out/i.test(d.innerText || ''))`)).value === true
+        );
+        check('the confirmation dialog opens', Boolean(dialogShown));
+        // The menu's exit animation keeps it in the DOM for ~140ms after it
+        // closes, so this waits for gone rather than sampling once.
+        const menuGone = await waitUntil(
+          async () => (await evaluate(`!!document.querySelector('[role="menu"]')`)).value === false
+        );
+        check('the menu closed behind the dialog', Boolean(menuGone));
+
+        await key('Escape');
+        await waitUntil(async () =>
+          (await evaluate(`document.querySelectorAll('[role="dialog"]').length`)).value === 0
+        );
+
+        const noiseSeen = drainNoise();
+        check('nothing threw', noiseSeen.length === 0, noiseSeen.join(' | '));
+      }
+    },
+    { window: '500,900', settle: 5000 }
+  );
+} catch (err) {
+  failures += 1;
+  console.log(`  FAIL  the mobile pass could not be driven: ${err.message}`);
 } finally {
   stopServer();
 }

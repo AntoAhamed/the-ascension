@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../context/AuthContext.jsx';
 import { accentForRank, formatNumber, rankFor } from '../lib/tiers.js';
 import { RankBadge } from './RankBadge.jsx';
+import { HeaderMenu } from './HeaderMenu.jsx';
 import { GUEST_BANNER_HEIGHT } from './GuestBanner.jsx';
 
 /**
@@ -60,14 +61,17 @@ export function Header({
       className="sticky top-0 z-50 border-b border-white/[0.06] bg-void-950/80 backdrop-blur-xl"
       style={isGuest ? { top: GUEST_BANNER_HEIGHT } : undefined}
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
+      {/* Mobile spacing is deliberately tighter (gap-2, px-3): the bar holds
+          brand + tabs + rank + menu at every width, and the wider values would
+          push the rank pill off the right edge of a 360px phone. */}
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6">
         {/* Brand */}
         <button
           onClick={() => onTabChange('dashboard')}
           className="group flex shrink-0 items-center gap-2.5"
           aria-label="Go to dashboard"
         >
-          <span className="grid h-9 w-9 place-items-center rounded-xl border border-neon-cyan/30 bg-neon-cyan/10 transition-transform group-hover:scale-105">
+          <span className="grid h-8 w-8 place-items-center rounded-xl border border-neon-cyan/30 bg-neon-cyan/10 transition-transform group-hover:scale-105 sm:h-9 sm:w-9">
             <Zap size={17} className="text-neon-cyan" />
           </span>
           <span className="hidden font-display text-sm font-black tracking-wider text-white sm:block">
@@ -86,7 +90,7 @@ export function Header({
             <button
               key={id}
               onClick={() => onTabChange(id)}
-              className={`relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              className={`relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-3 ${
                 activeTab === id ? 'text-void-950' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -142,66 +146,85 @@ export function Header({
           </m.button>
         )}
 
-        <button
-          onClick={onOpenAbout}
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
-          aria-label="About and How It Works"
-          title="About & How It Works"
-        >
-          <Info size={16} />
-        </button>
-
-        <button
-          onClick={onOpenFeedback}
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
-          aria-label="Feedback and Support"
-          title="Feedback & Support"
-        >
-          <MessageSquare size={16} />
-        </button>
-
-        <button
-          onClick={onToggleSound}
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
-          aria-label={soundOn ? 'Mute sound effects' : 'Enable sound effects'}
-          title={soundOn ? 'Mute' : 'Unmute'}
-        >
-          {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
-        </button>
-
-        {profile && (
-          <span
-            className="hidden h-8 w-8 place-items-center rounded-full border-2 font-display text-xs font-black sm:grid"
-            style={{
-              borderColor: accent,
-              backgroundColor: `${accent}1a`,
-              color: accent,
-            }}
-            title={profile.username}
-          >
-            {(profile.username?.[0] ?? '?').toUpperCase()}
-          </span>
-        )}
-
-        <button
-          onClick={onRequestSignOut}
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
-          aria-label="Sign out"
-          title="Sign out"
-          aria-haspopup="dialog"
-        >
-          <LogOut size={16} />
-        </button>
-        {!isGuest && (
+        {/* Full control row, sm and up. Below sm these live in HeaderMenu:
+            roughly 190px of buttons that cannot fit a phone's width — their
+            home on mobile is the overflow menu, not off the screen's edge. */}
+        <div className="hidden items-center gap-3 sm:flex">
           <button
-            onClick={onDeleteAccount}
-            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
-            aria-label="Delete account"
-            title="Delete account"
+            onClick={onOpenAbout}
+            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
+            aria-label="About and How It Works"
+            title="About & How It Works"
           >
-            <Trash2 size={16} />
+            <Info size={16} />
           </button>
-        )}
+
+          <button
+            onClick={onOpenFeedback}
+            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
+            aria-label="Feedback and Support"
+            title="Feedback & Support"
+          >
+            <MessageSquare size={16} />
+          </button>
+
+          <button
+            onClick={onToggleSound}
+            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
+            aria-label={soundOn ? 'Mute sound effects' : 'Enable sound effects'}
+            title={soundOn ? 'Mute' : 'Unmute'}
+          >
+            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+
+          {profile && (
+            <span
+              className="hidden h-8 w-8 place-items-center rounded-full border-2 font-display text-xs font-black sm:grid"
+              style={{
+                borderColor: accent,
+                backgroundColor: `${accent}1a`,
+                color: accent,
+              }}
+              title={profile.username}
+            >
+              {(profile.username?.[0] ?? '?').toUpperCase()}
+            </span>
+          )}
+
+          <button
+            onClick={onRequestSignOut}
+            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
+            aria-label="Sign out"
+            title="Sign out"
+            aria-haspopup="dialog"
+          >
+            <LogOut size={16} />
+          </button>
+          {!isGuest && (
+            <button
+              onClick={onDeleteAccount}
+              className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
+              aria-label="Delete account"
+              title="Delete account"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* The mobile home for everything above. */}
+        <div className="sm:hidden">
+          <HeaderMenu
+            profile={profile}
+            tierTable={tierTable}
+            soundOn={soundOn}
+            onToggleSound={onToggleSound}
+            onOpenAbout={onOpenAbout}
+            onOpenFeedback={onOpenFeedback}
+            onRequestSignOut={onRequestSignOut}
+            onDeleteAccount={onDeleteAccount}
+          />
+        </div>
       </div>
     </header>
   );

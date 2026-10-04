@@ -127,9 +127,19 @@ export async function serveDir(dir, port) {
  * otherwise). The profile is removed afterwards so repeated runs do not litter
  * temp for the life of the machine.
  */
-export async function withPage(browserPath, port, path, fn, { settle = 4000, window = '1280,900' } = {}) {
+/**
+ * `viewport` emulates a device (e.g. { width: 375, height: 812, mobile: true })
+ * via Emulation.setDeviceMetricsOverride, sent BEFORE navigation so the first
+ * paint already sees the emulated size. The --window-size flag is not a
+ * substitute: headless Chrome enforces a ~500px minimum window width, so a
+ * "mobile" test without the override quietly runs at desktop width.
+ */
+export async function withPage(browserPath, port, path, fn, { settle = 4000, window = '1280,900', viewport = null } = {}) {
   const debugPort = port + 1;
-  const profile = join(tmpdir(), `ascension-gate-${process.pid}`);
+  // Unique per invocation, not per process: two sequential withPage() calls in
+  // one script would otherwise share a path, and the first Chrome's still-
+  // exiting file locks make the second's cleanup fail with EPERM on Windows.
+  const profile = join(tmpdir(), `ascension-gate-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
   rmSync(profile, { recursive: true, force: true });
 
   const chrome = spawn(
@@ -285,6 +295,19 @@ export async function withPage(browserPath, port, path, fn, { settle = 4000, win
     };
 
     const origin = `http://localhost:${port}`;
+
+    if (viewport) {
+      await ws.send(
+        'Emulation.setDeviceMetricsOverride',
+        {
+          width: viewport.width,
+          height: viewport.height,
+          deviceScaleFactor: viewport.deviceScaleFactor ?? 2,
+          mobile: viewport.mobile ?? true,
+        },
+        S
+      );
+    }
 
     await ws.send('Page.navigate', { url: `${origin}${path}` }, S);
     await sleep(settle);
