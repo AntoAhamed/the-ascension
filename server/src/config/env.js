@@ -38,17 +38,45 @@ const PLACEHOLDERS = ['your-anon-key', 'your-service-role-key', 'your-gemini-api
  */
 const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
 
+/**
+ * Normalise one allowlist entry into a canonical bare origin.
+ *
+ * Two forgivable mistakes are fixed here, because neither can ever be what the
+ * writer meant and both otherwise fail SILENTLY — the entry matches nothing and
+ * the app reports "blocked by CORS" with a perfectly configured-looking server:
+ *
+ *   - trailing slashes ('https://app.com/'), stripped: the Origin header never
+ *     has one;
+ *   - a missing scheme ('app.example.com'), completed: browsers treat a bare
+ *     hostname as https, and so do we — except loopback, which is always a
+ *     local dev server over http. Completion is WARNED about rather than done
+ *     quietly, because the dashboard still shows the wrong value and the fix is
+ *     ten seconds; but it is not fatal, because the alternative — observed in a
+ *     real deploy log — is a boot crash loop over an entry whose intent was
+ *     never in doubt.
+ *
+ * Entries with paths or unparseable garbage are NOT forgiven: intent there is
+ * genuinely ambiguous, and validateConfig() below makes them a boot failure.
+ */
+function normalizeOriginEntry(entry) {
+  const s = entry.trim().replace(/\/+$/, '');
+  // The wildcards pass through untouched; the wildcard validation owns them.
+  if (!s || s === '*' || s === 'null') return s;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) return s;
+
+  const loopback = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(s);
+  const completed = `${loopback ? 'http' : 'https'}://${s}`;
+  console.warn(
+    `[config] CORS_ORIGIN entry "${s}" has no scheme — assuming "${completed}". ` +
+      'Set the full origin in your environment to silence this.'
+  );
+  return completed;
+}
+
 export const config = Object.freeze({
   ...raw,
   isProd: raw.nodeEnv === 'production',
-  // Trailing slashes are stripped, not trusted: the browser's Origin header
-  // never has one, so 'https://app.vercel.app/' in an env var would silently
-  // match nothing — a CORS wall that looks configured. Normalising here makes
-  // the forgiving thing happen at the boundary instead of per request.
-  allowedOrigins: corsOrigin
-    .split(',')
-    .map((s) => s.trim().replace(/\/+$/, ''))
-    .filter(Boolean),
+  allowedOrigins: corsOrigin.split(',').map(normalizeOriginEntry).filter(Boolean),
 });
 
 /**
@@ -96,8 +124,11 @@ export function validateConfig() {
     );
   } else {
     // Every entry must be a bare origin — scheme, host, optional port, nothing
-    // else. The Origin header it is compared against never carries a path, so
-    // 'https://host/app' matches nothing, and it does so silently.
+    // else. normalizeOriginEntry() has already repaired the two benign shapes
+    // (trailing slash, missing scheme), so what remains malformed here is the
+    // genuinely ambiguous: entries with a PATH ('https://host/app' — the Origin
+    // header never carries one, so it matches nothing, silently) and entries
+    // that do not parse at all.
     const malformed = config.allowedOrigins.filter((o) => {
       // Wildcards are the wildcard check's business (it owns the dev/prod
       // distinction); this check is about origins that *look* precise.

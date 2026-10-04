@@ -25,7 +25,7 @@
  *   5. vite.config.js sets strictPort, so the port cannot move silently again.
  */
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -286,13 +286,18 @@ function validateConfigWith(overrides) {
   const script =
     `import { validateConfig } from ${JSON.stringify(ENV_MODULE_URL)};\n` +
     'process.stdout.write(JSON.stringify(validateConfig()));';
-  return JSON.parse(
-    execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
-      cwd: resolve(repo, 'server'),
-      env: { ...process.env, ...overrides },
-      encoding: 'utf8',
-    })
-  );
+  // stderr is captured rather than forwarded: some cases intentionally feed
+  // scheme-less entries, which warn by design, and that warning would otherwise
+  // read as a suite failure. The warning has its own dedicated assertions below.
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: resolve(repo, 'server'),
+    env: { ...process.env, ...overrides },
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(`config child process failed: ${result.stderr || result.stdout}`);
+  }
+  return JSON.parse(result.stdout);
 }
 
 function configProblems(label, overrides, expectedFragment, shouldAppear) {
@@ -341,16 +346,24 @@ configProblems('an empty allowlist is rejected', { NODE_ENV: 'production', CORS_
  */
 
 function allowedOriginsWith(overrides) {
+  return allowedOriginsDetailed(overrides).origins;
+}
+
+/** The normalised allowlist plus stderr, so the scheme-completion warning is
+ * assertable — forgiving must never mean silent. */
+function allowedOriginsDetailed(overrides) {
   const script =
     `import { config } from ${JSON.stringify(ENV_MODULE_URL)};\n` +
     'process.stdout.write(JSON.stringify(config.allowedOrigins));';
-  return JSON.parse(
-    execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
-      cwd: resolve(repo, 'server'),
-      env: { ...process.env, ...overrides },
-      encoding: 'utf8',
-    })
-  );
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: resolve(repo, 'server'),
+    env: { ...process.env, ...overrides },
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(`config child process failed: ${result.stderr || result.stdout}`);
+  }
+  return { origins: JSON.parse(result.stdout), stderr: result.stderr };
 }
 
 {
@@ -401,8 +414,14 @@ configProblems(
   true
 );
 configProblems(
-  'a scheme-less entry is a boot failure',
-  { NODE_ENV: 'production', CORS_ORIGIN: 'app.example.com' },
+  'a scheme-less entry carrying a path is still a boot failure',
+  { NODE_ENV: 'production', CORS_ORIGIN: 'app.example.com/app' },
+  'bare origins',
+  true
+);
+configProblems(
+  'unparseable garbage is a boot failure',
+  { NODE_ENV: 'production', CORS_ORIGIN: 'exa mple.com' },
   'bare origins',
   true
 );
@@ -417,6 +436,70 @@ configProblems(
   { NODE_ENV: 'development', CORS_ORIGIN: '*' },
   'bare origins',
   false
+);
+
+/* --- scheme completion: forgiven, warned, never silent ---------------------- *
+ * A scheme-less entry can never match a real Origin header, so its intent is
+ * not in doubt — and a real deploy crash-looped on exactly this. Browsers treat
+ * a bare hostname as https; the boundary now does the same (http for loopback),
+ * and says so on stderr rather than fixing it quietly.
+ */
+
+{
+  const { origins, stderr } = allowedOriginsDetailed({
+    NODE_ENV: 'production',
+    CORS_ORIGIN: 'the-ascension-bd.vercel.app',
+  });
+  eq(
+    'a scheme-less hostname is completed to https',
+    JSON.stringify(origins),
+    JSON.stringify(['https://the-ascension-bd.vercel.app'])
+  );
+  check(
+    'the completion is warned about, not silent',
+    stderr.includes('has no scheme') && stderr.includes('https://the-ascension-bd.vercel.app'),
+    `stderr was: ${stderr.slice(0, 200)}`
+  );
+}
+
+{
+  const { origins } = allowedOriginsDetailed({ NODE_ENV: 'development', CORS_ORIGIN: 'localhost:5173' });
+  eq(
+    'a scheme-less loopback is completed to http, not https',
+    JSON.stringify(origins),
+    JSON.stringify(['http://localhost:5173'])
+  );
+}
+
+{
+  const { origins, stderr } = allowedOriginsDetailed({
+    NODE_ENV: 'production',
+    CORS_ORIGIN: 'https://app.example.com',
+  });
+  eq('a fully spelled origin is untouched', JSON.stringify(origins), JSON.stringify(['https://app.example.com']));
+  check('no warning for a fully spelled origin', !stderr.includes('has no scheme'), `stderr was: ${stderr.slice(0, 200)}`);
+}
+
+{
+  const { origins } = allowedOriginsDetailed({
+    NODE_ENV: 'production',
+    CORS_ORIGIN: 'app-one.example.com, https://app-two.example.com/',
+  });
+  eq(
+    'completion and slash-stripping compose in one list',
+    JSON.stringify(origins),
+    JSON.stringify(['https://app-one.example.com', 'https://app-two.example.com'])
+  );
+}
+
+// The completed value must actually admit the browser's Origin header.
+eq(
+  'a scheme-less entry admits the completed origin',
+  isOriginAllowed('https://the-ascension-bd.vercel.app', {
+    allowedOrigins: ['https://the-ascension-bd.vercel.app'], // what env.js now produces from 'the-ascension-bd.vercel.app'
+    isProd: true,
+  }),
+  true
 );
 
 /* ------------------------------------------------------------------ *
