@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-void-950 text-slate-200 font-sans antialiased;
+    /* Ambient nebula wash behind everything. */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 90% 10%, rgba(167, 139, 250, 0.12), transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 110%, rgba(251, 191, 36, 0.07), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-neon-cyan/30 text-white;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-void-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-void-600 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-neon-cyan/40;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-neon-cyan/70 ring-offset-2 ring-offset-void-950;
+  }
+}
+
+@layer components {
+  /* Frosted panel used by nearly every card. */
+  .panel {
+    @apply relative rounded-2xl border border-white/[0.07] bg-void-850/70 backdrop-blur-xl shadow-card;
+  }
+
+  .panel-hover {
+    @apply transition-all duration-300 hover:border-white/[0.14] hover:bg-void-800/80;
+  }
+
+  /* Gradient text for headings. */
+  .text-gradient {
+    @apply bg-gradient-to-r from-neon-cyan via-white to-neon-violet bg-clip-text text-transparent;
+  }
+
+  /* Animated gradient border on the primary CTA. */
+  .btn-primary {
+    @apply relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl
+           bg-gradient-to-r from-neon-cyan to-neon-violet px-6 py-3 font-bold text-void-950
+           transition-transform duration-200 active:scale-[0.97]
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
+    box-shadow: 0 8px 30px -8px rgba(34, 211, 238, 0.7);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 40px -8px rgba(34, 211, 238, 0.85);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10
+           bg-white/[0.03] px-5 py-2.5 font-semibold text-slate-300
+           transition-all duration-200 hover:border-white/20 hover:bg-white/[0.07] hover:text-white
+           active:scale-[0.97];
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-white/10 bg-void-900/70 px-4 py-3 text-slate-100
+           placeholder:text-slate-600 transition-all duration-200
+           focus:border-neon-cyan/50 focus:bg-void-900 focus:outline-none
+           focus:ring-2 focus:ring-neon-cyan/20;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold tracking-wide;
+  }
+
+  /* Thin progress rail used by the tier card. */
+  .progress-rail {
+    @apply relative h-3 w-full overflow-hidden rounded-full bg-void-700;
+  }
+  .progress-fill {
+    @apply h-full rounded-full transition-[width] duration-1000 ease-out;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Fades the top of a scrollable region. */
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+  }
+}
+
+/* Respect users who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

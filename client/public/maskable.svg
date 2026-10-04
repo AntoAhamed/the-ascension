@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="The Ascension">
+  <!--
+    GENERATED FILE - do not edit by hand.
+    Produced by client/scripts/render-icons.mjs. The PNG rasters in this
+    directory come from the same bezier control points, so the two cannot drift.
+
+    A rising flame rather than a trophy or shield: it ties together streaks (the
+    Grandmaster rank icon is already a flame), ascending through the rank ladder,
+    and heat while you work. It also survives being shrunk to 16px, which a
+    trophy's stem and handles emphatically do not.
+
+    The silhouette is deliberately asymmetric. Fire is recognised by two features
+    a symmetrical teardrop lacks: the tip leans left, and the right flank tucks
+    inward about a third of the way up to form the notch that reads as a flame
+    licking off a body.
+
+    The gradient brightens upward - violet at the base through cyan to gold at the
+    tip - so the mark itself reads as "ascension", and it matches the rank
+    accents (Apprentice violet -> Practitioner cyan -> Apex gold).
+  -->
+  <defs>
+    <!-- y1=1 (base) to y2=0 (tip): brightest colour at the tip, where the eye
+         lands first. -->
+    <linearGradient id="flame" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="45%" stop-color="#22d3ee"/>
+      <stop offset="80%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#ffd166"/>
+    </linearGradient>
+
+    <linearGradient id="badge" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#0d1020"/>
+      <stop offset="100%" stop-color="#05060f"/>
+    </linearGradient>
+
+    <!-- Hot core. Warms toward a yellow-white rather than a neutral white:
+         mixing cyan toward pure white lands on a pale mint that reads sickly. -->
+    <linearGradient id="core" x1="0.5" y1="0.95" x2="0.5" y2="0.55">
+      <stop offset="0%" stop-color="#fffdf0"/>
+      <stop offset="100%" stop-color="#fff3d0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="0" fill="url(#badge)"/>
+  <path fill="url(#flame)" d="M 159.44 324.3 C 140.6 357.27 204.19 373.76 256 373.76 C 324.3 373.76 361.98 343.14 350.21 284.26 C 340.79 234.8 286.62 220.67 293.68 187.7 C 300.75 157.08 263.07 150.02 239.51 138.24 C 208.9 152.37 206.54 192.41 215.96 225.38 C 178.28 244.22 164.15 274.84 159.44 324.3 Z"/>
+  <path fill="url(#core)" opacity="0.78" d="M 256 350.21 C 208.9 340.79 208.9 298.39 223.03 270.13 C 237.16 248.93 267.78 248.93 274.84 232.45 C 279.55 215.96 256 206.54 244.22 201.83 C 227.74 211.25 227.74 239.51 237.16 263.07 C 218.32 288.97 232.45 338.43 256 350.21 Z"/>
+</svg>
