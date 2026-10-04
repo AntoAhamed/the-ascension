@@ -11,8 +11,17 @@ import { DifficultyBadge } from './DifficultyBadge.jsx';
  * today's points, and how long until the streak decays.
  */
 export function DailyStatusCard({ todayStatus, todayLog, revokedLog, delay = 0.15 }) {
-  const { hours, minutes, seconds, isUrgent } = useCountdown();
+  const { msLeft, hours, minutes, seconds, isUrgent } = useCountdown();
   const submitted = Boolean(todayStatus?.hasSubmitted);
+
+  // The reset is 00:00 UTC everywhere, which is almost never local midnight —
+  // saying only "Resets in" reads as a bug to anyone more than an hour off UTC.
+  // Name the local wall-clock time of the reset so the duration has a frame of
+  // reference: "5:00:00 left" makes sense once you can see it means 6:00 AM here.
+  const resetLocalTime = new Date(Date.now() + msLeft).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 
   const accent = submitted ? '#34d399' : isUrgent ? '#fb7185' : '#22d3ee';
 
@@ -55,6 +64,11 @@ export function DailyStatusCard({ todayStatus, todayLog, revokedLog, delay = 0.1
               {String(hours).padStart(2, '0')}:{String(minutes).padStart(2, '0')}:
               {String(seconds).padStart(2, '0')}
             </m.p>
+            <p className="mt-1 text-[10px] font-medium leading-tight text-slate-600">
+              at 00:00 UTC
+              <br />
+              {resetLocalTime} your time
+            </p>
           </div>
         </div>
 
