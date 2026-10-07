@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { GuestBanner } from './components/GuestBanner.jsx';
 import { Dashboard } from './pages/Dashboard.jsx';
 import { useAuth } from './context/AuthContext.jsx';
@@ -52,23 +53,29 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="grid min-h-screen place-items-center">
-        <LoadingPanel label="Waking the judge…" />
-      </div>
+      <>
+        <div className="grid min-h-screen place-items-center">
+          <LoadingPanel label="Waking the judge…" />
+        </div>
+        <Analytics />
+      </>
     );
   }
 
   if (!canExplore) {
     return (
-      <Suspense
-        fallback={
-          <div className="grid min-h-screen place-items-center">
-            <LoadingPanel label="Loading…" />
-          </div>
-        }
-      >
-        <AuthScreen />
-      </Suspense>
+      <>
+        <Suspense
+          fallback={
+            <div className="grid min-h-screen place-items-center">
+              <LoadingPanel label="Loading…" />
+            </div>
+          }
+        >
+          <AuthScreen />
+        </Suspense>
+        <Analytics />
+      </>
     );
   }
 
@@ -76,6 +83,7 @@ export default function App() {
     <>
       {isGuest && <GuestBanner />}
       <Dashboard tab={tab} onTabChange={setTab} />
+      <Analytics />
     </>
   );
 }
